@@ -4,6 +4,9 @@
     <title>智能单词记忆系统</title>
     <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
     <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
+    <!-- 引入 AWS SDK -->
+    <script src="https://sdk.amazonaws.com/js/aws-sdk-2.283.1.min.js"></script>
+    <meta charset="UTF-8">
     <style>
         /* 原有样式保持不变 */
         body {
@@ -105,269 +108,360 @@
     </style>
 </head>
 <body>
-    <div id="app">
-        <!-- 新增悬浮导出按钮 -->
-        <div class="export-fab" @click="exportExcel" title="随时导出数据">📤</div>
+<div id="app">
+    <!-- 新增悬浮导出按钮 -->
+    <div class="export-fab" @click="exportExcel" title="随时导出数据">📤</div>
 
-        <!-- 管理界面 -->
-        <div class="container" v-if="!isTesting">
-            <h2>📚 单词记忆系统</h2>
-            
-            <div class="stats">
-                <button @click="importExcel">📥 导入Excel</button>
-                <!-- <button @click="exportExcel">📤 导出Excel</button> -->
-                <input 
-                    type="file" 
+    <!-- 管理界面 -->
+    <div class="container" v-if="!isTesting">
+        <h2>📚 单词记忆系统</h2>
+
+        <div class="stats">
+            <button @click="importExcel">📥 导入Excel</button>
+            <input
+                    type="file"
                     ref="fileInput"
                     class="hidden-input"
                     @change="handleFile"
                     accept=".xlsx, .xls"
-                >
-                
-                <div v-if="words.length > 0">
-                    <p>✔ 已存储单词：{{ words.length }} 个</p>
-                    <p>🎯 掌握率：{{ masteredPercentage }}%</p>
-                    <div class="progress-bar">
-                        <div class="progress" :style="{width: masteredPercentage + '%'}"></div>
-                    </div>
+            >
+
+            <div v-if="words.length > 0">
+                <p>✔ 已存储单词：{{ words.length }} 个</p>
+                <p>🎯 掌握率：{{ masteredPercentage }}%</p>
+                <div class="progress-bar">
+                    <div class="progress" :style="{width: masteredPercentage + '%'}"></div>
                 </div>
             </div>
+        </div>
 
-            <h3>➕ 添加新单词</h3>
-            <textarea
+        <h3>➕ 添加新单词</h3>
+        <textarea
                 v-model="newWords"
                 placeholder="输入格式示例：
 apple
 banana, orange
 hello world"
-            ></textarea>
-            <button @click="startTest">🚀 开始练习</button>
+        ></textarea>
+        <!-- 在这里增加了提示按钮 -->
+        <button @click="startTest">🚀 开始练习</button>
+        <button @click="showHint">💡 提示</button>
 
-            <div v-if="words.length > 0" class="word-list-container">
-                <h3>🗃 当前词库</h3>
-                <div class="word-list">
-                    <div v-for="(word, index) in words" :key="index" class="word-item">
-                        {{ word.text }}
-                        <span 
+        <div v-if="words.length > 0" class="word-list-container">
+            <h3>🗃 当前词库</h3>
+            <div class="word-list">
+                <div v-for="(word, index) in words" :key="index" class="word-item">
+                    {{ word.text }}
+                    <span
                             class="status-dot"
                             :class="word.isMastered ? 'mastered' : 'learning'"
                             :title="word.isMastered ? '已掌握' : '学习中'"
-                        ></span>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- 测试界面 -->
-        <div class="container" v-if="isTesting">
-            <div style="position: relative">
-                <!-- 在测试界面右上角添加固定导出按钮 -->
-                <button 
-                    style="position: absolute; right: 0; top: 0"
-                    @click="exportExcel"
-                >
-                    📥 实时导出
-                </button>
-                
-                <div v-if="currentWord">
-                    <h3>📝 练习进度 ({{ currentWordIndex + 1 }}/{{ words.length }})</h3>
-                    <button @click="speakCurrentWord">🔊 重复发音</button>
-                    
-                    <div style="margin: 20px 0">
-                        <p>请输入你听到的单词/词组：</p>
-                        <input 
-                            type="text" 
-                            v-model="userInput"
-                            @keyup.enter="checkSpelling"
-                            style="width: 300px; padding: 8px; font-size: 1.2em;"
-                            autofocus
-                        >
-                        <button @click="checkSpelling">✅ 提交</button>
-                    </div>
-
-                    <div class="error" v-if="errorMessage">{{ errorMessage }}</div>
-                    <div v-if="showSuccess">
-                        <p class="success">🎉 拼写正确！</p>
-                        <button @click="nextWord">➡️ 下一个单词</button>
-                    </div>
-                </div>
-
-                <div v-if="!currentWord">
-                    <h2>🎉 全部完成！</h2>
-                    <p>本次练习掌握 {{ newlyMasteredCount }} 个新单词</p>
-                    <button @click="exportExcel">💾 导出本次进度</button>
-                    <button @click="isTesting = false">🏠 返回词库管理</button>
+                    ></span>
                 </div>
             </div>
         </div>
     </div>
 
-    <script>
-        const app = Vue.createApp({
-            data() {
-                return {
-                    newWords: '',
-                    words: [],
-                    isTesting: false,
-                    currentWordIndex: -1,
-                    userInput: '',
-                    errorMessage: '',
-                    showSuccess: false,
-                    synth: window.speechSynthesis,
-                    newlyMasteredCount: 0
-                }
+    <!-- 测试界面 -->
+    <div class="container" v-if="isTesting">
+        <div style="position: relative">
+            <!-- 在测试界面右上角添加固定导出按钮 -->
+            <button
+                    style="position: absolute; right: 0; top: 0"
+                    @click="exportExcel"
+            >
+                📥 实时导出
+            </button>
+
+            <div v-if="currentWord">
+                <h3>📝 练习进度 ({{ currentWordIndex + 1 }}/{{ words.length }})</h3>
+                <button @click="speakCurrentWord">🔊 重复发音</button>
+                <!-- 也可以在测试界面增加提示按钮 -->
+                <button @click="showHint">💡 提示</button>
+
+                <div style="margin: 20px 0">
+                    <p>请输入你听到的单词/词组：</p>
+                    <input
+                            type="text"
+                            v-model="userInput"
+                            @keyup.enter="checkSpelling"
+                            style="width: 300px; padding: 8px; font-size: 1.2em;"
+                            autofocus
+                    >
+                    <button @click="checkSpelling">✅ 提交</button>
+                </div>
+
+                <div class="error" v-if="errorMessage">{{ errorMessage }}</div>
+                <div v-if="showSuccess">
+                    <p class="success">🎉 拼写正确！</p>
+                    <button @click="nextWord">➡️ 下一个单词</button>
+                </div>
+            </div>
+
+            <div v-if="!currentWord">
+                <h2>🎉 全部完成！</h2>
+                <p>本次练习掌握 {{ newlyMasteredCount }} 个新单词</p>
+                <button @click="exportExcel">💾 导出本次进度</button>
+                <button @click="isTesting = false">🏠 返回词库管理</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // 请务必根据你的实际情况配置 region 和凭证（仅测试用，正式环境请放在后端处理）
+    AWS.config.region = '';  // 或你选择的区域
+    AWS.config.credentials = new AWS.Credentials('');
+    const polly = new AWS.Polly();
+
+    const app = Vue.createApp({
+        data() {
+            return {
+                newWords: '',
+                words: [],
+                isTesting: false,
+                currentWordIndex: -1,
+                userInput: '',
+                errorMessage: '',
+                showSuccess: false,
+                synth: window.speechSynthesis,
+                newlyMasteredCount: 0
+            }
+        },
+        computed: {
+            currentWord() {
+                return this.words[this.currentWordIndex]
             },
-            computed: {
-                currentWord() {
-                    return this.words[this.currentWordIndex]
-                },
-                masteredPercentage() {
-                    if (this.words.length === 0) return 0
-                    const mastered = this.words.filter(w => w.isMastered).length
-                    return Math.round((mastered / this.words.length) * 100)
-                },
-                unmasteredWords() {
-                    return this.words.filter(word => !word.isMastered)
-                }
+            masteredPercentage() {
+                if (this.words.length === 0) return 0
+                const mastered = this.words.filter(w => w.isMastered).length
+                return Math.round((mastered / this.words.length) * 100)
             },
-            methods: {
-                startTest() {
-                    const newWords = this.newWords
-                        .split(/[\n,]/)
-                        .map(w => w.trim())
-                        .filter(w => w)
-                        .map(text => ({ 
-                            text, 
-                            isMastered: false,
-                            lastPracticed: null 
-                        }))
-                    
-                    // 合并新单词到现有词库（去重）
-                    newWords.forEach(newWord => {
-                        if (!this.words.some(w => w.text.toLowerCase() === newWord.text.toLowerCase())) {
-                            this.words.push(newWord)
-                        }
-                    })
-                    
-                    this.newWords = ''
-                    if (this.words.length === 0) return
-                    
-                    // 从未掌握的单词开始
-                    const firstUnmasteredIndex = this.words.findIndex(word => !word.isMastered)
-                    this.currentWordIndex = firstUnmasteredIndex !== -1 ? firstUnmasteredIndex : 0
-                    
-                    this.isTesting = true
-                    this.newlyMasteredCount = 0
-                    this.speakCurrentWord()
-                },
+            unmasteredWords() {
+                return this.words.filter(word => !word.isMastered)
+            }
+        },
+        methods: {
+            startTest() {
+                const newWords = this.newWords
+                    .split(/[\n,]/)
+                    .map(w => w.trim())
+                    .filter(w => w)
+                    .map(text => ({
+                        text,
+                        isMastered: false,
+                        lastPracticed: null
+                    }))
 
-                speakCurrentWord() {
-                    if (!this.currentWord) return
-                    const utterance = new SpeechSynthesisUtterance(this.currentWord.text)
-                    utterance.lang = 'en-US'
-                    this.synth.speak(utterance)
-                },
-
-                checkSpelling() {
-                    if (!this.userInput.trim()) return
-                    
-                    const isCorrect = this.userInput.trim().toLowerCase() === 
-                                    this.currentWord.text.toLowerCase()
-                    
-                    if (isCorrect) {
-                        if (!this.currentWord.isMastered) {
-                            this.newlyMasteredCount++
-                        }
-                        this.currentWord.isMastered = true
-                        this.currentWord.lastPracticed = new Date()
-                        this.showSuccess = true
-                        this.errorMessage = ''
-                    } else {
-                        this.errorMessage = `❌ 拼写错误，正确应为：${this.currentWord.text}`
-                        this.showSuccess = false
-                    }
-                },
-
-                nextWord() {
-                    this.showSuccess = false
-                    this.userInput = ''
-                    this.errorMessage = ''
-                    
-                    // 找到下一个未掌握的单词
-                    const nextUnmasteredIndex = this.words
-                        .slice(this.currentWordIndex + 1)
-                        .findIndex(word => !word.isMastered)
-                    
-                    if (nextUnmasteredIndex !== -1) {
-                        this.currentWordIndex += nextUnmasteredIndex + 1
-                        this.speakCurrentWord()
-                    } else {
-                        // 如果没有更多未掌握的单词，结束练习
-                        this.currentWordIndex = -1
-                    }
-                },
-
-                importExcel() {
-                    this.$refs.fileInput.click()
-                },
-
-                async handleFile(e) {
-                    const file = e.target.files[0]
-                    if (!file) return
-
-                    const reader = new FileReader()
-                    reader.onload = (e) => {
-                        const data = new Uint8Array(e.target.result)
-                        const workbook = XLSX.read(data, { type: 'array' })
-                        const worksheet = workbook.Sheets[workbook.SheetNames[0]]
-                        
-                        const jsonData = XLSX.utils.sheet_to_json(worksheet, {
-                            header: ['text', 'isMastered'],
-                            range: 1
-                        })
-
-                        this.words = jsonData
-                            .filter(row => row.text)
-                            .map(row => ({
-                                text: row.text.toString().trim(),
-                                isMastered: row.isMastered === "已掌握",
-                                lastPracticed: new Date()
-                            }))
-                    }
-                    reader.readAsArrayBuffer(file)
-                },
-
-                exportExcel() {
-                    const worksheetData = this.words.map(word => [
-                        word.text,
-                        word.isMastered ? "已掌握" : "未掌握",
-                        word.lastPracticed ? word.lastPracticed.toLocaleDateString() : '从未练习'
-                    ])
-                    
-                    const worksheet = XLSX.utils.aoa_to_sheet([
-                        ["单词", "掌握状态", "最后练习时间"],
-                        ...worksheetData
-                    ])
-                    
-                    const workbook = XLSX.utils.book_new()
-                    XLSX.utils.book_append_sheet(workbook, worksheet, "单词记忆表")
-                    XLSX.writeFile(workbook, `单词记忆表_${new Date().toLocaleDateString()}.xlsx`)
-                }
-            },
-            mounted() {
-                if (!this.synth) {
-                    alert("⚠️ 您的浏览器不支持语音合成功能，建议使用Chrome浏览器")
-                }
-
-                window.addEventListener('beforeunload', (e) => {
-                    if (this.words.length > 0) {
-                        this.exportExcel()
+                // 合并新单词到现有词库（去重）
+                newWords.forEach(newWord => {
+                    if (!this.words.some(w => w.text.toLowerCase() === newWord.text.toLowerCase())) {
+                        this.words.push(newWord)
                     }
                 })
-            }
-        })
 
-        app.mount('#app')
-    </script>
+                this.newWords = ''
+                if (this.words.length === 0) return
+
+                // 从未掌握的单词开始
+                const firstUnmasteredIndex = this.words.findIndex(word => !word.isMastered)
+                this.currentWordIndex = firstUnmasteredIndex !== -1 ? firstUnmasteredIndex : 0
+
+                this.isTesting = true
+                this.newlyMasteredCount = 0
+                this.speakCurrentWord()
+            },
+
+            speakCurrentWord() {
+                if (!this.currentWord) return
+                const utterance = new SpeechSynthesisUtterance(this.currentWord.text)
+                utterance.lang = 'en-US'
+                this.synth.speak(utterance)
+            },
+
+            async getHintForWord(word) {
+                // 请替换 YOUR_OPENAI_API_KEY 为你自己的 OpenAI API 密钥
+                const apiKey = ''
+                const prompt = `请为单词 "${word}" 生成一句包含该单词的例句。此外我需要你构造带 SSML 标签的文本，加入自然停顿, 除了构造的句子本身不要返回多余的话`
+                const response = await fetch('https://api.openai.com/v1/chat/completions', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${apiKey}`
+                    },
+                    body: JSON.stringify({
+                        model: 'gpt-4o',
+                        messages: [
+                            { role: 'user', content: prompt }
+                        ]
+                    })
+                })
+                const data = await response.json()
+                return data.choices[0].message.content.trim()
+            },
+
+            async showHint() {
+                if (this.words.length === 0) {
+                    alert("请先添加单词")
+                    return
+                }
+                try {
+                    // const hintSentence = await this.getHintForWord(targetWord.text)
+                    // // 使用语音合成读出提示句（可根据生成句子语言调整 lang）
+                    // const utterance = new SpeechSynthesisUtterance(hintSentence)
+                    // // 此处假设生成的例句为中文，如需英文请改为 'en-US'
+                    // utterance.lang = 'en-US'
+                    // this.synth.speak(utterance)
+
+                    // 也可以弹窗显示提示句
+                    // alert(hintSentence)
+
+
+
+                    // 先调用 OpenAI API 获取句子
+                    const hintSentence = await this.getHintForWord(this.currentWord.text);
+                    console.log("Generated hint sentence:", hintSentence);
+                    // 再调用 AWS Polly 将该句子转换成音频并播放
+                    const audioUrl = await this.readSentenceWithPolly(hintSentence);
+                    const audio = new Audio(audioUrl);
+                    audio.play();
+
+
+                } catch (err) {
+                    console.error(err)
+                    alert("获取提示失败，请重试")
+                }
+            },
+
+            async readSentenceWithPolly(sentence) {
+                // 使用 AWS Polly 将句子合成为音频
+                const params = {
+                    OutputFormat: 'mp3',
+                    Text: sentence,
+                    VoiceId: 'Joanna', // 英文语音
+                    TextType: 'ssml'
+                };
+
+                return new Promise((resolve, reject) => {
+                    polly.synthesizeSpeech(params, (err, data) => {
+                        if (err) {
+                            console.error(err);
+                            return;
+                        }
+
+                        // data.AudioStream 是 ArrayBuffer 类型
+                        const uInt8Array = new Uint8Array(data.AudioStream);
+                        const blob = new Blob([uInt8Array.buffer], { type: 'audio/mp3' });
+                        const audioUrl = URL.createObjectURL(blob);
+
+                        // 用 HTML Audio 对象播放
+                        const audio = new Audio(audioUrl);
+                        audio.play();
+                    });
+                });
+            },
+
+
+            checkSpelling() {
+                if (!this.userInput.trim()) return
+
+                const isCorrect = this.userInput.trim().toLowerCase() ===
+                    this.currentWord.text.toLowerCase()
+
+                if (isCorrect) {
+                    if (!this.currentWord.isMastered) {
+                        this.newlyMasteredCount++
+                    }
+                    this.currentWord.isMastered = true
+                    this.currentWord.lastPracticed = new Date()
+                    this.showSuccess = true
+                    this.errorMessage = ''
+                } else {
+                    this.errorMessage = `❌ 拼写错误，正确应为：${this.currentWord.text}`
+                    this.showSuccess = false
+                }
+            },
+
+            nextWord() {
+                this.showSuccess = false
+                this.userInput = ''
+                this.errorMessage = ''
+
+                // 找到下一个未掌握的单词
+                const nextUnmasteredIndex = this.words
+                    .slice(this.currentWordIndex + 1)
+                    .findIndex(word => !word.isMastered)
+
+                if (nextUnmasteredIndex !== -1) {
+                    this.currentWordIndex += nextUnmasteredIndex + 1
+                    this.speakCurrentWord()
+                } else {
+                    // 如果没有更多未掌握的单词，结束练习
+                    this.currentWordIndex = -1
+                }
+            },
+
+            importExcel() {
+                this.$refs.fileInput.click()
+            },
+
+            async handleFile(e) {
+                const file = e.target.files[0]
+                if (!file) return
+
+                const reader = new FileReader()
+                reader.onload = (e) => {
+                    const data = new Uint8Array(e.target.result)
+                    const workbook = XLSX.read(data, { type: 'array' })
+                    const worksheet = workbook.Sheets[workbook.SheetNames[0]]
+
+                    const jsonData = XLSX.utils.sheet_to_json(worksheet, {
+                        header: ['text', 'isMastered'],
+                        range: 1
+                    })
+
+                    this.words = jsonData
+                        .filter(row => row.text)
+                        .map(row => ({
+                            text: row.text.toString().trim(),
+                            isMastered: row.isMastered === "已掌握",
+                            lastPracticed: new Date()
+                        }))
+                }
+                reader.readAsArrayBuffer(file)
+            },
+
+            exportExcel() {
+                const worksheetData = this.words.map(word => [
+                    word.text,
+                    word.isMastered ? "已掌握" : "未掌握",
+                    word.lastPracticed ? word.lastPracticed.toLocaleDateString() : '从未练习'
+                ])
+
+                const worksheet = XLSX.utils.aoa_to_sheet([
+                    ["单词", "掌握状态", "最后练习时间"],
+                    ...worksheetData
+                ])
+
+                const workbook = XLSX.utils.book_new()
+                XLSX.utils.book_append_sheet(workbook, worksheet, "单词记忆表")
+                XLSX.writeFile(workbook, `单词记忆表_${new Date().toLocaleDateString()}.xlsx`)
+            }
+        },
+        mounted() {
+            if (!this.synth) {
+                alert("⚠️ 您的浏览器不支持语音合成功能，建议使用Chrome浏览器")
+            }
+
+            window.addEventListener('beforeunload', (e) => {
+                if (this.words.length > 0) {
+                    this.exportExcel()
+                }
+            })
+        }
+    })
+
+    app.mount('#app')
+</script>
 </body>
 </html>
