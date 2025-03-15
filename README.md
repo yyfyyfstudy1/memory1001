@@ -6,6 +6,9 @@
 
 <img width="1020" alt="image" src="https://github.com/user-attachments/assets/0f7c9b88-70e3-478a-ba76-ab92d91d6774" />
 
+## 智能提示，智能发音
+<img width="1148" alt="image" src="https://github.com/user-attachments/assets/abb58085-06a8-48a4-90ab-e3d9636e9e3b" />
+
 
 ## 实时导出词典为Excel，标记是否背过
 <img width="746" alt="image" src="https://github.com/user-attachments/assets/cebfba2d-042b-4774-8a39-e82388acd4a8" />
